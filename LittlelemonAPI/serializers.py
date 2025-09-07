@@ -26,8 +26,7 @@ class MenuItemSerializer(serializers.ModelSerializer):
     category_id = serializers.IntegerField(write_only=True)
     class Meta:
         model = models.MenuItem
-        fields = ['id', 'title', 'price', 'featured', 'category', 'category_id']
-        depth = 1
+        fields = ['id', 'name', 'price', 'description', 'featured', 'category', 'category_id', 'image']
 
 
 class CartSerializer(serializers.ModelSerializer):
@@ -60,3 +59,10 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Order
         fields = ['id', 'user_id', 'delivery_crew','status', 'total', 'date', 'orderitem', 'orderitem_id',]
+
+
+class BookingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Booking
+        fields = ['id', 'customer_name', 'email', 'phone', 'date', 'time', 'number_of_guests', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']

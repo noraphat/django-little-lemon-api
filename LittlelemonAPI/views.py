@@ -1,7 +1,10 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import status
+from rest_framework import status, viewsets, filters
 from rest_framework.response import Response
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, action
+from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
+from rest_framework.pagination import PageNumberPagination
+from django_filters.rest_framework import DjangoFilterBackend
 from . import models
 from decimal import Decimal
 import datetime
@@ -451,3 +454,105 @@ def order_single(request, id):
             return Response({"message": "You are not authorized."}, status.HTTP_403_FORBIDDEN)
         order.delete()
         return Response(status.HTTP_204_NO_CONTENT)
+
+
+class IsManagerOrReadOnly(IsAuthenticated):
+    def has_permission(self, request, view):
+        if not super().has_permission(request, view):
+            return False
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return True
+        return request.user.groups.filter(name='Manager').exists()
+
+
+class LittleLemonPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class MenuViewSet(viewsets.ModelViewSet):
+    queryset = models.MenuItem.objects.all()
+    serializer_class = serializers.MenuItemSerializer
+    permission_classes = [IsManagerOrReadOnly]
+    pagination_class = LittleLemonPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['category', 'featured', 'price']
+    search_fields = ['name', 'description']
+    ordering_fields = ['name', 'price', 'category']
+    ordering = ['name']
+
+    def get_permissions(self):
+        if self.action == 'list' or self.action == 'retrieve':
+            self.permission_classes = [IsAuthenticatedOrReadOnly]
+        else:
+            self.permission_classes = [IsAuthenticated]
+        return [permission() for permission in self.permission_classes]
+
+    def create(self, request, *args, **kwargs):
+        if not request.user.groups.filter(name='Manager').exists():
+            return Response({"message": "You are not authorized."}, status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if not request.user.groups.filter(name='Manager').exists():
+            return Response({"message": "You are not authorized."}, status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if not request.user.groups.filter(name='Manager').exists():
+            return Response({"message": "You are not authorized."}, status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.groups.filter(name='Manager').exists():
+            return Response({"message": "You are not authorized."}, status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+
+class BookingViewSet(viewsets.ModelViewSet):
+    queryset = models.Booking.objects.all()
+    serializer_class = serializers.BookingSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = LittleLemonPagination
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['date', 'number_of_guests']
+    search_fields = ['customer_name', 'email', 'phone']
+    ordering_fields = ['date', 'time', 'customer_name', 'number_of_guests']
+    ordering = ['date', 'time']
+
+    def get_permissions(self):
+        if self.action == 'create':
+            self.permission_classes = [IsAuthenticated]
+        else:
+            self.permission_classes = [IsAuthenticated]
+        return [permission() for permission in self.permission_classes]
+
+    def get_queryset(self):
+        if self.request.user.groups.filter(name='Manager').exists():
+            return models.Booking.objects.all()
+        return models.Booking.objects.filter(customer_name=self.request.user.username)
+
+    def perform_create(self, serializer):
+        if not self.request.user.groups.filter(name='Manager').exists():
+            serializer.save(customer_name=self.request.user.username)
+        else:
+            serializer.save()
+
+    def update(self, request, *args, **kwargs):
+        booking = self.get_object()
+        if not request.user.groups.filter(name='Manager').exists() and booking.customer_name != request.user.username:
+            return Response({"message": "You can only update your own bookings."}, status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        booking = self.get_object()
+        if not request.user.groups.filter(name='Manager').exists() and booking.customer_name != request.user.username:
+            return Response({"message": "You can only update your own bookings."}, status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        booking = self.get_object()
+        if not request.user.groups.filter(name='Manager').exists() and booking.customer_name != request.user.username:
+            return Response({"message": "You can only delete your own bookings."}, status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)

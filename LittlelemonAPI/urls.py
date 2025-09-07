@@ -1,7 +1,15 @@
-from django.urls import path
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from . import views
 
+router = DefaultRouter()
+router.register(r'menu', views.MenuViewSet)
+router.register(r'bookings', views.BookingViewSet)
+
 urlpatterns = [
+    # ViewSet endpoints
+    path('', include(router.urls)),
+    
     # path('', views.home),
     
     # throttle check
@@ -11,7 +19,7 @@ urlpatterns = [
     path('category', views.category),
     path('category/<int:id>', views.category_single),
 
-    # Menu-items endpoints
+    # Menu-items endpoints (legacy)
     path('menu-items', views.menuitems),
     path('menu-items/<int:id>', views.menuitems_single),
 
