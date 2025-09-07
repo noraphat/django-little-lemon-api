@@ -26,6 +26,10 @@ from django.contrib.auth.models import User, Group
 # Serialization
 from . import serializers
 
+# Authentication views
+from rest_framework.authtoken.models import Token
+from django.contrib.auth import authenticate
+
 # Pagination
 from django.core.paginator import Paginator, EmptyPage
 
@@ -126,6 +130,7 @@ def category_single(request, id):
 # GET: Lists all menu items. Return a 200 – Ok HTTP status code
 # POST: Creates a new menu item and returns 201 - Created
 @api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
 @throttle_classes([AnonRateThrottle, UserRateThrottle])
 def menuitems(request):
     if request.method == 'GET':
@@ -167,6 +172,7 @@ def menuitems(request):
 # PUT, PATCH: Updates single menu item
 # DELETE: Deletes menu item
 @api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
+@permission_classes([IsAuthenticated])
 @throttle_classes([AnonRateThrottle, UserRateThrottle])
 def menuitems_single(request, id):
     item = get_object_or_404(models.MenuItem, pk=id)
@@ -484,7 +490,7 @@ class MenuViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         if self.action == 'list' or self.action == 'retrieve':
-            self.permission_classes = [IsAuthenticatedOrReadOnly]
+            self.permission_classes = [IsAuthenticated]
         else:
             self.permission_classes = [IsAuthenticated]
         return [permission() for permission in self.permission_classes]
@@ -556,3 +562,67 @@ class BookingViewSet(viewsets.ModelViewSet):
         if not request.user.groups.filter(name='Manager').exists() and booking.customer_name != request.user.username:
             return Response({"message": "You can only delete your own bookings."}, status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
+
+
+@api_view(['POST'])
+def register_user(request):
+    if request.method == 'POST':
+        serializer = serializers.UserRegistrationSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            token, created = Token.objects.get_or_create(user=user)
+            return Response({
+                'message': 'User created successfully',
+                'user_id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'token': token.key
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def login_user(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+    
+    if username and password:
+        user = authenticate(username=username, password=password)
+        if user:
+            token, created = Token.objects.get_or_create(user=user)
+            return Response({
+                'message': 'Login successful',
+                'user_id': user.id,
+                'username': user.username,
+                'email': user.email,
+                'token': token.key
+            }, status=status.HTTP_200_OK)
+        return Response({'error': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+    return Response({'error': 'Username and password required'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def logout_user(request):
+    try:
+        token = Token.objects.get(user=request.user)
+        token.delete()
+        return Response({'message': 'Successfully logged out'}, status=status.HTTP_200_OK)
+    except Token.DoesNotExist:
+        return Response({'error': 'No token found'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['GET', 'PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def user_profile(request):
+    if request.method == 'GET':
+        serializer = serializers.UserProfileSerializer(request.user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    elif request.method in ['PUT', 'PATCH']:
+        partial = request.method == 'PATCH'
+        serializer = serializers.UserProfileSerializer(request.user, data=request.data, partial=partial)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
